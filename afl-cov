@@ -88,8 +88,8 @@ def main():
     if cargs.validate_args:
         return exit_success
 
-    if cargs.func_search or cargs.line_search:
-        return not search_cov(cargs)
+    # if cargs.func_search or cargs.line_search:
+    #     return not search_cov(cargs)
 
     if cargs.background:
         run_in_background()
@@ -392,7 +392,15 @@ def coverage_diff(
 
     if not new_cov:
         return
-
+    
+    def handle_function_call(func):
+        if cargs.func_search and func == cargs.func_search.encode():
+            logr(
+                b"\tSearched function call: %s" % (func),
+                cov_paths["log_file"],
+                cargs,
+            )
+            
     # We aren't interested in the number of times AFL has executed
     # a line or function (since we can't really get this anyway because
     # gcov stats aren't influenced by AFL directly) - what we want is
@@ -407,7 +415,9 @@ def coverage_diff(
                 print_diff_header = False
             for ctype in new_cov[b"pos"][f]:
                 for val in sorted(new_cov[b"pos"][f][ctype]):
-                    cov[b"pos"][f][ctype][val] = b""
+                    cov[b"pos"][f][ctype][val] = new_cov[b"pos"][f][ctype][val]
+                    if ctype == b"function":
+                        handle_function_call(val)
                     if print_filename:
                         log_lines.append(b"New src file: " + f)
                         print_filename = False
@@ -427,7 +437,9 @@ def coverage_diff(
             for ctype in new_cov[b"pos"][f]:
                 for val in sorted(new_cov[b"pos"][f][ctype]):
                     if val not in cov[b"pos"][f][ctype]:
-                        cov[b"pos"][f][ctype][val] = b""
+                        cov[b"pos"][f][ctype][val] = new_cov[b"pos"][f][ctype][val]
+                        if ctype == b"function":
+                            handle_function_call(val)
                         if print_diff_header:
                             log_lines.append(b"diff %s -> %s" % (a_file, b_file))
                             print_diff_header = False
@@ -446,6 +458,10 @@ def coverage_diff(
                                 b"%s, %d, %s, %s, %s\n"
                                 % (delta_file, cycle_num, f, ctype, val)
                             )
+                    else:
+                        if ctype == b"function" and cov[b"pos"][f][ctype][val] != new_cov[b"pos"][f][ctype][val]:
+                            handle_function_call(val)
+                        cov[b"pos"][f][ctype][val] = new_cov[b"pos"][f][ctype][val]
 
     # now that new positive coverage has been added, reset zero
     # coverage to the current new zero coverage
@@ -576,9 +592,9 @@ def extract_coverage(
                     fcn = m.group(2) + b"()"
                     if m.group(1) == b"0":
                         # the function was never called
-                        tmp_cov[b"zero"][current_file][b"function"][fcn] = b""
+                        tmp_cov[b"zero"][current_file][b"function"][fcn] = m.group(1)
                     else:
-                        tmp_cov[b"pos"][current_file][b"function"][fcn] = b""
+                        tmp_cov[b"pos"][current_file][b"function"][fcn] = m.group(1)
                     continue
 
                 # look for lines that were never called
@@ -609,7 +625,7 @@ def search_cov(cargs: argparse.Namespace) -> bool:
             if (
                 cargs.func_search
                 and cov_type == b"function"
-                and val == cargs.func_search
+                and val == cargs.func_search.encode()
             ):
                 if cargs.src_file:
                     if cargs.src_file.encode() == src_file:
